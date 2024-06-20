@@ -93,10 +93,6 @@ void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTen
     float w = *(results_data + (out_dim * 2) + i);
     float h = *(results_data + (out_dim * 3) + i);
 
-    // Convert coordinates from model output to target image dimensions
-    // float x1 = ((x - (0.5 * w)));
-    // float y1 = ((y - (0.5* h)));
-    // debug
     float x1 = (x);
     float y1 = (y);
     float width = w;
@@ -134,11 +130,10 @@ void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTen
 
     // 2D object Bbox
     vision_msgs::msg::BoundingBox2D bbox;
-    // float x_center = bboxes[ind].x + (0.5 * w)+(img_width-640.0)/2;
-    // float y_center = bboxes[ind].y + (0.5 * h)+(img_height-640.0)/2;
-
-
+  
     float aspect_ratio = target_width_ / target_height_;
+
+    float x_center, y_center, w, h;
 
     if(aspect_ratio > 1.0){
       float width = 640.0;
@@ -150,14 +145,14 @@ void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTen
       float x1_scaled = bboxes[ind].x * width_scale;
       float y1_scaled = bboxes[ind].y * height_scale;
 
-      float w = bboxes[ind].width * width_scale;
-      float h = bboxes[ind].height * height_scale;
+       w = bboxes[ind].width * width_scale;
+       h = bboxes[ind].height * height_scale;
 
-      float y_center = y1_scaled;
-      float x_center = x1_scaled;
+       y_center = y1_scaled;
+       x_center = x1_scaled;
 
       float y_offset = 640 - height;
-      y_center -= y_offset;
+      y_center += y_offset;
 
     }
     else{
@@ -170,11 +165,11 @@ void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTen
       float x1_scaled = bboxes[ind].x * width_scale;
       float y1_scaled = bboxes[ind].y * height_scale;
 
-      float w = bboxes[ind].width * width_scale;
-      float h = bboxes[ind].height * height_scale;
+       w = bboxes[ind].width * width_scale;
+       h = bboxes[ind].height * height_scale;
 
-      float y_center = y1_scaled;
-      float x_center = x1_scaled;
+       y_center = y1_scaled;
+       x_center = x1_scaled;
 
       float x_offset = 640 - width;
       x_center -= x_offset;

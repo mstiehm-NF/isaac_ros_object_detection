@@ -159,7 +159,6 @@ class Yolov8Visualizer(Node):
         txt_color = (255, 0, 255)
         cv2_img = self._bridge.imgmsg_to_cv2(img_msg)
         for detection in detections_msg.detections:
-            detection.header.frame_id = img_msg.header.frame_id # debugging
             
             center_x = detection.bbox.center.position.x
             center_y = detection.bbox.center.position.y
@@ -186,12 +185,10 @@ class Yolov8Visualizer(Node):
             cv2.putText(cv2_img, label, (min_pt[0], min_pt[1]-2 if outside else min_pt[1]+h+2),
                         0, lw / 3, txt_color, thickness=tf, lineType=cv2.LINE_AA)
 
-        detections_msg.header.frame_id = img_msg.header.frame_id
 
         processed_img = self._bridge.cv2_to_imgmsg(
             cv2_img, encoding=img_msg.encoding)
         processed_img.header = img_msg.header
-        processed_img.header.frame_id = img_msg.header.frame_id
         self._processed_image_pub.publish(processed_img)
 
 
