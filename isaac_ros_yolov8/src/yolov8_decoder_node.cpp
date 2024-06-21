@@ -137,7 +137,7 @@ void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTen
 
     if(aspect_ratio > 1.0){
       float width = 640.0;
-      float height = 640.0 / aspect_ratio;
+      float height = 360.0;
 
       float width_scale = target_width_ / width;
       float height_scale = target_height_ / height;
@@ -155,7 +155,7 @@ void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTen
       y_center += y_offset;
 
     }
-    else{
+    else if(aspect_ratio < 1.0){
       float width = 640/aspect_ratio;
       float height = 640;
 
@@ -174,6 +174,22 @@ void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTen
       float x_offset = 640 - width;
       x_center -= x_offset;
 
+    }
+    else{
+      float width = 640;
+      float height = 640;
+
+      float width_scale = target_width_ / width;
+      float height_scale = target_height_ / height;
+
+      float x1_scaled = bboxes[ind].x * width_scale;
+      float y1_scaled = bboxes[ind].y * height_scale;
+
+       w = bboxes[ind].width * width_scale;
+       h = bboxes[ind].height * height_scale;
+
+       y_center = y1_scaled;
+       x_center = x1_scaled;
     }
 
     detection.bbox.center.position.x = x_center;
