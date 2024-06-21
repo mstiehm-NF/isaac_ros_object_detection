@@ -50,21 +50,25 @@ YoloV8DecoderNode::YoloV8DecoderNode(const rclcpp::NodeOptions options)
       nvidia::isaac_ros::nitros::nitros_tensor_list_nchw_rgb_f32_t::supported_type_name,
       std::bind(&YoloV8DecoderNode::InputCallback, this,
       std::placeholders::_1))},
+  
+  // Publisher for output Detection2DArray messages
   pub_{create_publisher<vision_msgs::msg::Detection2DArray>(
       "detections_output", 50)},
   tensor_name_{declare_parameter<std::string>("tensor_name", "output_tensor")},
   confidence_threshold_{declare_parameter<double>("confidence_threshold", 0.25)},
   nms_threshold_{declare_parameter<double>("nms_threshold", 0.45)},
-  target_width_{declare_parameter<int>("target_width", 640)},
-  target_height_{declare_parameter<int>("target_height", 480)},
+  target_width_{declare_parameter<int>("target_width", 1280)},
+  target_height_{declare_parameter<int>("target_height", 720)},
   num_classes_{declare_parameter<int>("num_classes", 3)}
+  
 {}
+
 
 YoloV8DecoderNode::~YoloV8DecoderNode() = default;
 
 void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTensorListView& msg)
 {
-
+  
   long int img_width = target_width_; // Specify target image width
   long int img_height = target_height_; // Specify target image height
   long int num_classes = num_classes_; // Specify number of classes
@@ -89,9 +93,8 @@ void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTen
     float w = *(results_data + (out_dim * 2) + i);
     float h = *(results_data + (out_dim * 3) + i);
 
-    // Convert coordinates from model output to target image dimensions
-    float x1 = ((x - (0.5 * w)));
-    float y1 = ((y - (0.5* h)));
+    float x1 = (x);
+    float y1 = (y);
     float width = w;
     float height = h;
 
@@ -127,16 +130,57 @@ void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTen
 
     // 2D object Bbox
     vision_msgs::msg::BoundingBox2D bbox;
-    float w = bboxes[ind].width;
-    float h = bboxes[ind].height;
-    float x_center = bboxes[ind].x + (0.5 * w)+(img_width-640.0)/2;
-    float y_center = bboxes[ind].y + (0.5 * h)+(img_height-640.0)/2;
+  
+    float aspect_ratio = target_width_ / target_height_;
+
+    float x_center, y_center, w, h;
+
+    if(aspect_ratio > 1.0){
+      float width = 640.0;
+      float height = 640.0 / aspect_ratio;
+
+      float width_scale = target_width_ / width;
+      float height_scale = target_height_ / height;
+
+      float x1_scaled = bboxes[ind].x * width_scale;
+      float y1_scaled = bboxes[ind].y * height_scale;
+
+       w = bboxes[ind].width * width_scale;
+       h = bboxes[ind].height * height_scale;
+
+       y_center = y1_scaled;
+       x_center = x1_scaled;
+
+      float y_offset = 640 - height;
+      y_center += y_offset;
+
+    }
+    else{
+      float width = 640/aspect_ratio;
+      float height = 640;
+
+      float width_scale = target_width_ / width;
+      float height_scale = target_height_ / height;
+
+      float x1_scaled = bboxes[ind].x * width_scale;
+      float y1_scaled = bboxes[ind].y * height_scale;
+
+       w = bboxes[ind].width * width_scale;
+       h = bboxes[ind].height * height_scale;
+
+       y_center = y1_scaled;
+       x_center = x1_scaled;
+
+      float x_offset = 640 - width;
+      x_center -= x_offset;
+
+    }
+
     detection.bbox.center.position.x = x_center;
     detection.bbox.center.position.y = y_center;
     detection.bbox.size_x = w;
     detection.bbox.size_y = h;
-
-
+  
     // Class probabilities
     vision_msgs::msg::ObjectHypothesisWithPose hyp;
     hyp.hypothesis.class_id = std::to_string(classes.at(ind));
@@ -145,12 +189,13 @@ void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTen
 
     detection.header.stamp.sec = msg.GetTimestampSeconds();
     detection.header.stamp.nanosec = msg.GetTimestampNanoseconds();
-
+    detection.header.frame_id = msg.GetFrameId();
     final_detections_arr.detections.push_back(detection);
   }
 
   final_detections_arr.header.stamp.sec = msg.GetTimestampSeconds();
   final_detections_arr.header.stamp.nanosec = msg.GetTimestampNanoseconds();
+  final_detections_arr.header.frame_id = msg.GetFrameId();
   pub_->publish(final_detections_arr);
 }
 
