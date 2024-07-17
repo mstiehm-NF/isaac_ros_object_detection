@@ -126,24 +126,24 @@ def generate_launch_description():
         namespace=namespace
     )
 
-    yolov8_decoder_node = ComposableNode(
-        name='yolov8_decoder_node',
-        package='isaac_ros_yolov8',
-        plugin='nvidia::isaac_ros::yolov8::YoloV8DecoderNode',
-        parameters=[{
-            'confidence_threshold': confidence_threshold,
-            'nms_threshold': nms_threshold,
-            'target_width' : 1280,
-            'target_height' : 720,
-        }],
-        namespace=namespace
-    )
+    # yolov8_decoder_node = ComposableNode(
+    #     name='yolov8_decoder_node',
+    #     package='isaac_ros_yolov8',
+    #     plugin='nvidia::isaac_ros::yolov8::YoloV8DecoderNode',
+    #     parameters=[{
+    #         'confidence_threshold': confidence_threshold,
+    #         'nms_threshold': nms_threshold,
+    #         'target_width' : 1280,
+    #         'target_height' : 720,
+    #     }],
+    #     namespace=namespace
+    # )
 
     tensor_rt_container = ComposableNodeContainer(
         name='tensor_rt_container',
         package='rclcpp_components',
         executable='component_container_mt',
-        composable_node_descriptions=[encoder_node, tensor_rt_node, yolov8_decoder_node],
+        composable_node_descriptions=[encoder_node, tensor_rt_node],
         output='screen',
         arguments=['--ros-args', '--log-level', 'INFO'],
         namespace=namespace

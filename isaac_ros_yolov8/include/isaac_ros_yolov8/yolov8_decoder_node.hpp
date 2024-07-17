@@ -20,11 +20,11 @@
 
 #include <memory>
 #include <string>
+#include <vector>
+#include <opencv4/opencv2/core/types.hpp>
 
 #include "rclcpp/rclcpp.hpp"
-
 #include "isaac_ros_managed_nitros/managed_nitros_subscriber.hpp"
-
 #include "std_msgs/msg/string.hpp"
 #include "vision_msgs/msg/detection2_d_array.hpp"
 #include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list_view.hpp"
@@ -45,6 +45,7 @@ public:
 
 private:
   void InputCallback(const nvidia::isaac_ros::nitros::NitrosTensorListView & msg);
+
   // Subscription to input NitrosTensorList messages
   std::shared_ptr<nvidia::isaac_ros::nitros::ManagedNitrosSubscriber<
       nvidia::isaac_ros::nitros::NitrosTensorListView>> nitros_sub_;
@@ -53,14 +54,14 @@ private:
   rclcpp::Publisher<vision_msgs::msg::Detection2DArray>::SharedPtr pub_;
 
   // Name of tensor in NitrosTensorList
-  std::string tensor_name_{};
+  std::string tensor_name_;
 
   // YOLOv8 Decoder Parameters
-  double confidence_threshold_{};
-  double nms_threshold_{};
-  long int target_width_{};
-  long int target_height_{};
-  long int num_classes_{};
+  double confidence_threshold_;
+  double nms_threshold_;
+  long int target_width_;
+  long int target_height_;
+  long int num_classes_;
 
 };
 

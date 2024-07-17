@@ -16,10 +16,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 cmake_minimum_required(VERSION 3.22.1)
-project(isaac_ros_yolov8 LANGUAGES C CXX)
+project(isaac_ros_yolov8 LANGUAGES C CXX CUDA)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-Wall -Wextra -Wpedantic)
+  add_compile_options(-Wall -Wextra -Wno-pedantic)
 endif()
 
 find_package(ament_cmake_auto REQUIRED)
@@ -29,22 +29,26 @@ find_package(vision_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(CUDA REQUIRED)
+
 include_directories(${OpenCV_INCLUDE_DIRS})
+include_directories(${CUDA_INCLUDE_DIRS})
 
 ament_auto_find_build_dependencies()
 find_package(ament_cmake_python REQUIRED)
 
 # yolov8 Decoder node
-ament_auto_add_library(yolov8_decoder_node SHARED src/yolov8_decoder_node.cpp)
+ament_auto_add_library(yolov8_decoder_node SHARED src/yolov8_decoder_node.cpp )
+
+target_include_directories(yolov8_decoder_node PRIVATE include)
+target_link_libraries(yolov8_decoder_node ${OpenCV_LIBRARIES} ${CUDA_LIBRARIES})
+
 rclcpp_components_register_nodes(yolov8_decoder_node "nvidia::isaac_ros::yolov8::YoloV8DecoderNode")
 set(node_plugins "${node_plugins}nvidia::isaac_ros::yolov8::YoloV8DecoderNode;$<TARGET_FILE:yolov8_decoder_node>\n")
-
-target_link_libraries(yolov8_decoder_node ${OpenCV_LIBRARIES})
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   ament_lint_auto_find_test_dependencies()
-
 
   # The FindPythonInterp and FindPythonLibs modules are removed
   if(POLICY CMP0148)
@@ -63,3 +67,4 @@ install(PROGRAMS
 )
 
 ament_auto_package(INSTALL_TO_SHARE launch)
+
