@@ -22,11 +22,22 @@ from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 
 
 def generate_launch_description():
+    launch_args = [
+        DeclareLaunchArgument(
+            'namespace',
+            default_value='',
+            description='Namespace for the nodes'
+        ),
+    ]
+    # Namespace
+    namespace = LaunchConfiguration('namespace')
     my_package_dir = get_package_share_directory('isaac_ros_yolov8')
-    return LaunchDescription([
+    return LaunchDescription(launch_args + [
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([os.path.join(
                 my_package_dir, 'launch'),
@@ -35,12 +46,14 @@ def generate_launch_description():
         Node(
             package='isaac_ros_yolov8',
             executable='isaac_ros_yolov8_visualizer.py',
-            name='yolov8_visualizer'
+            name='yolov8_visualizer',
+            namespace=namespace,
         ),
         Node(
             package='rqt_image_view',
             executable='rqt_image_view',
             name='image_view',
-            arguments=['/yolov8_processed_image']
+            arguments=['yolov8_processed_image'],
+            namespace=namespace,
         )
     ])

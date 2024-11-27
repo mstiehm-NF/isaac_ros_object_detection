@@ -55,8 +55,8 @@ YoloV8DecoderNode::YoloV8DecoderNode(const rclcpp::NodeOptions options)
   tensor_name_{declare_parameter<std::string>("tensor_name", "output_tensor")},
   confidence_threshold_{declare_parameter<double>("confidence_threshold", 0.25)},
   nms_threshold_{declare_parameter<double>("nms_threshold", 0.45)},
-  target_width_{declare_parameter<int>("target_width", 1280)},
-  target_height_{declare_parameter<int>("target_height", 720)},
+  target_width_{declare_parameter<int>("target_width", 640)},
+  target_height_{declare_parameter<int>("target_height", 480)},
   num_classes_{declare_parameter<int>("num_classes", 3)}
   
 {}
@@ -123,45 +123,78 @@ void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTen
 
     float x_center, y_center, w, h;
 
-    if (aspect_ratio > 1.0) {
-      float width = 640.0;
-      float height = 360.0;
-      float width_scale = static_cast<float>(target_width_) / width;
-      float height_scale = static_cast<float>(target_height_) / height;
+    // if (aspect_ratio > 1.0) {
+    //   float width = 640.0;  // Resized width
+    //   float height = 640.0 / aspect_ratio;  // Resized height (maintain aspect ratio)
+    //   float scale = static_cast<float>(target_width_) / width;  // Scaling factor
+    //   float vertical_padding = (640.0 - height) / 2.0;  // Padding added to height
 
-      float x1_scaled = bboxes[ind].x * width_scale;
-      float y1_scaled = bboxes[ind].y * height_scale;
-      w = bboxes[ind].width * width_scale;
-      h = bboxes[ind].height * height_scale;
-      y_center = y1_scaled + (640 - height);
-      x_center = x1_scaled;
+    //   // Scale bounding box coordinates
+    //   float x1_scaled = (bboxes[ind].x - vertical_padding) * scale;
+    //   float y1_scaled = bboxes[ind].y * scale;
 
-    } else if (aspect_ratio < 1.0) {
-      float width = 640 / aspect_ratio;
-      float height = 640;
-      float width_scale = static_cast<float>(target_width_) / width;
-      float height_scale = static_cast<float>(target_height_) / height;
+    //   w = bboxes[ind].width * scale;
+    //   h = bboxes[ind].height * scale;
 
-      float x1_scaled = bboxes[ind].x * width_scale;
-      float y1_scaled = bboxes[ind].y * height_scale;
-      w = bboxes[ind].width * width_scale;
-      h = bboxes[ind].height * height_scale;
-      y_center = y1_scaled;
-      x_center = x1_scaled - (640 - width);
+    //   x_center = x1_scaled;
+    //   y_center = y1_scaled;
 
-    } else {
-      float width = 640;
-      float height = 640;
-      float width_scale = static_cast<float>(target_width_) / width;
-      float height_scale = static_cast<float>(target_height_) / height;
+    // } else if (aspect_ratio < 1.0) {
+    //   float width = 640.0 * aspect_ratio;  // Resized width (maintain aspect ratio)
+    //   float height = 640.0;  // Resized height
+    //   float scale = static_cast<float>(target_height_) / height;  // Scaling factor
+    //   float horizontal_padding = (640.0 - width) / 2.0;  // Padding added to width
 
-      float x1_scaled = bboxes[ind].x * width_scale;
-      float y1_scaled = bboxes[ind].y * height_scale;
-      w = bboxes[ind].width * width_scale;
-      h = bboxes[ind].height * height_scale;
-      y_center = y1_scaled;
-      x_center = x1_scaled;
+    //   // Scale bounding box coordinates
+    //   float x1_scaled = bboxes[ind].x * scale;
+    //   float y1_scaled = (bboxes[ind].y - horizontal_padding) * scale;
+
+    //   w = bboxes[ind].width * scale;
+    //   h = bboxes[ind].height * scale;
+
+    //   x_center = x1_scaled;
+    //   y_center = y1_scaled;
+
+    // } else {
+    //   float width = 640.0;
+    //   float height = 640.0;
+    //   float scale = static_cast<float>(target_width_) / width;  // Scaling factor
+
+    //   // Scale bounding box coordinates
+    //   float x1_scaled = bboxes[ind].x * scale;
+    //   float y1_scaled = bboxes[ind].y * scale;
+
+    //   w = bboxes[ind].width * scale;
+    //   h = bboxes[ind].height * scale;
+
+    //   x_center = x1_scaled;
+    //   y_center = y1_scaled;
+    // }
+
+    float scale;
+    float pad_x, pad_y;
+
+    if (aspect_ratio > 1.0) {  
+        scale = 640.0 / target_width_;  
+        float new_height = target_height_ * scale; 
+        pad_y = (640.0 - new_height) / 2.0;  
+        pad_x = 0.0; 
+    } else if (aspect_ratio < 1.0) {  
+        scale = 640.0 / target_height_;  
+        float new_width = target_width_ * scale;  
+        pad_x = (640.0 - new_width) / 2.0;  
+        pad_y = 0.0;  
+    } else {  
+        scale = 640.0 / target_width_;
+        pad_x = 0.0;
+        pad_y = 0.0;
     }
+
+   
+    x_center = (bboxes[ind].x - pad_x) / scale;
+    y_center = (bboxes[ind].y - pad_y) / scale;
+    w = bboxes[ind].width / scale;
+    h = bboxes[ind].height / scale;
 
     detection.bbox.center.position.x = x_center;
     detection.bbox.center.position.y = y_center;
