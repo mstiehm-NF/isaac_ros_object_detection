@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -45,6 +45,10 @@ target_link_libraries(yolov8_decoder_node ${OpenCV_LIBRARIES} ${CUDA_LIBRARIES})
 
 rclcpp_components_register_nodes(yolov8_decoder_node "nvidia::isaac_ros::yolov8::YoloV8DecoderNode")
 set(node_plugins "${node_plugins}nvidia::isaac_ros::yolov8::YoloV8DecoderNode;$<TARGET_FILE:yolov8_decoder_node>\n")
+set_target_properties(yolov8_decoder_node PROPERTIES
+  BUILD_WITH_INSTALL_RPATH TRUE
+  BUILD_RPATH_USE_ORIGIN TRUE
+  INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -56,6 +60,7 @@ if(BUILD_TESTING)
   endif()
 
   find_package(launch_testing_ament_cmake REQUIRED)
+  add_launch_test(test/isaac_ros_yolov8_decoder_node_pol.py TIMEOUT "600")
 endif()
 
 # Visualizer python scripts
@@ -65,6 +70,12 @@ install(PROGRAMS
   scripts/isaac_ros_yolov8_visualizer.py
   DESTINATION lib/${PROJECT_NAME}
 )
+
+
+# Embed versioning information into installed files
+ament_index_get_resource(ISAAC_ROS_COMMON_CMAKE_PATH isaac_ros_common_cmake_path isaac_ros_common)
+include("${ISAAC_ROS_COMMON_CMAKE_PATH}/isaac_ros_common-version-info.cmake")
+generate_version_info(${PROJECT_NAME})
 
 ament_auto_package(INSTALL_TO_SHARE launch)
 

@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-// Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -57,12 +57,11 @@ private:
   std::string tensor_name_;
 
   // YOLOv8 Decoder Parameters
-  double confidence_threshold_;
-  double nms_threshold_;
+  double confidence_threshold_{};
+  double nms_threshold_{};
+  int64_t num_classes_{};
   long int target_width_;
   long int target_height_;
-  long int num_classes_;
-
 };
 
 }  // namespace yolov8
