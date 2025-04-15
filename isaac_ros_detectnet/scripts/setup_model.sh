@@ -90,20 +90,6 @@ function setup_model() {
 
   # if model doesnt have labels.txt file, then create one manually
   # create custom model
-<<<<<<< HEAD
-  /opt/nvidia/tao/tao-converter \
-    -k $PRETRAINED_MODEL_ETLT_KEY \
-    -d 3,$HEIGHT,$WIDTH \
-    -p input_1,1x3x$HEIGHTx$WIDTH,1x3x$HEIGHTx$WIDTH,1x3x$HEIGHTx$WIDTH \
-    -t $PRECISION \
-    -e model.plan \
-    -o $OUTPUT_LAYERS\
-    $MODEL_FILE_NAME
-  echo Copying .pbtxt config file to $MODEL_DIR
-  cd /workspaces/isaac_ros-dev/src/nvidia_object_detection/isaac_ros_object_detection/isaac_ros_detectnet
-  cp $CONFIG_FILE_PATH \
-    $MODEL_DIR/config.pbtxt
-=======
   /usr/src/tensorrt/bin/trtexec \
     --maxShapes="input_1:0":${MAX_BATCH_SIZE}x3x${HEIGHT}x${WIDTH} \
     --minShapes="input_1:0":1x3x${HEIGHT}x${WIDTH} \
@@ -118,7 +104,6 @@ function setup_model() {
   export ISAAC_ROS_DETECTNET_PATH=$(ros2 pkg prefix isaac_ros_detectnet --share)
   cp $ISAAC_ROS_DETECTNET_PATH/config/$CONFIG_FILE \
     ${OUTPUT_PATH}/config.pbtxt
->>>>>>> upstream/main
   echo Completed quickstart setup
 }
 
