@@ -48,17 +48,14 @@ YoloV8DecoderNode::YoloV8DecoderNode(const rclcpp::NodeOptions options)
       nvidia::isaac_ros::nitros::nitros_tensor_list_nchw_rgb_f32_t::supported_type_name,
       std::bind(&YoloV8DecoderNode::InputCallback, this,
       std::placeholders::_1))},
-  
-  // Publisher for output Detection2DArray messages
   pub_{create_publisher<vision_msgs::msg::Detection2DArray>(
       "detections_output", 50)},
   tensor_name_{declare_parameter<std::string>("tensor_name", "output_tensor")},
   confidence_threshold_{declare_parameter<double>("confidence_threshold", 0.25)},
   nms_threshold_{declare_parameter<double>("nms_threshold", 0.45)},
   target_width_{declare_parameter<int>("target_width", 1280)},
-  target_height_{declare_parameter<int>("target_height", 720)},
-  num_classes_{declare_parameter<int>("num_classes", 3)}
-  
+  num_classes_{declare_parameter<int64_t>("num_classes", 3)},       // moved before target_height_
+  target_height_{declare_parameter<long int>("target_height", 720)} // after num_classes_
 {}
 
 YoloV8DecoderNode::~YoloV8DecoderNode() = default;
