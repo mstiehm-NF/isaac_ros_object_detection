@@ -72,11 +72,11 @@ def generate_launch_description():
         ),
 
         # image_view under the same namespace
-        Node(
-            package='rqt_image_view',
-            executable='rqt_image_view',
-            name='image_view',
-            namespace=namespace,
-            arguments=['yolov8_processed_image']
-        )
+        # Node(
+        #     package='rqt_image_view',
+        #     executable='rqt_image_view',
+        #     name='image_view',
+        #     namespace=namespace,
+        #     arguments=['yolov8_processed_image']
+        # )
     ])
