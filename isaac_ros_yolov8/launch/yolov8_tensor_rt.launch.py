@@ -29,43 +29,106 @@ def generate_launch_description():
     """Generate launch description for TensorRT ROS 2 node."""
     # By default loads and runs mobilenetv2-1.0 included in isaac_ros_dnn_inference/models
     launch_args = [
-        DeclareLaunchArgument(
-            'model_file_path',
-            default_value='',
-            description='The absolute file path to the ONNX file'),
-        DeclareLaunchArgument(
-            'engine_file_path',
-            default_value='',
-            description='The absolute file path to the TensorRT engine file'),
-        DeclareLaunchArgument(
-            'input_tensor_names',
-            default_value='["input_tensor"]',
-            description='A list of tensor names to bound to the specified input binding names'),
-        DeclareLaunchArgument(
-            'input_binding_names',
-            default_value='[""]',
-            description='A list of input tensor binding names (specified by model)'),
-        DeclareLaunchArgument(
-            'output_tensor_names',
-            default_value='["output_tensor"]',
-            description='A list of tensor names to bound to the specified output binding names'),
-        DeclareLaunchArgument(
-            'output_binding_names',
-            default_value='[""]',
-            description='A list of output tensor binding names (specified by model)'),
-        DeclareLaunchArgument(
-            'verbose',
-            default_value='False',
-            description='Whether TensorRT should verbosely log or not'),
-        DeclareLaunchArgument(
-            'force_engine_update',
-            default_value='False',
-            description='Whether TensorRT should update the TensorRT engine file or not'),
-        DeclareLaunchArgument(
-            'namespace',
-            default_value='',
-            description='Namespace for the nodes'
-        ),
+            DeclareLaunchArgument(
+                'network_image_width',
+                default_value='640',
+                description='The input image width that the network expects'
+            ),
+            DeclareLaunchArgument(
+                'network_image_height',
+                default_value='640',
+                description='The input image height that the network expects'
+            ),
+            DeclareLaunchArgument(
+                'input_image_width',
+                default_value='640',
+                description='The input image width that the encoder expects'
+            ),
+            DeclareLaunchArgument(
+                'input_image_height',
+                default_value='480',
+                description='The input image height that the encoder expects'
+            ),
+            DeclareLaunchArgument(
+                'input_encoding',
+                default_value='rgb8',
+                description='The desired image format encoding'
+            ),
+            DeclareLaunchArgument(
+                'image_mean',
+                default_value='[0.0, 0.0, 0.0]',
+                description='The mean for image normalization'
+            ),
+            DeclareLaunchArgument(
+                'image_stddev',
+                default_value='[1.0, 1.0, 1.0]',
+                description='The standard deviation for image normalization'
+            ),
+            DeclareLaunchArgument(
+                'model_file_path',
+                default_value='/workspaces/isaac_ros-dev/models/yolov8s.onnx',
+                description='The absolute file path to the ONNX file'
+            ),
+            DeclareLaunchArgument(
+                'engine_file_path',
+                default_value='/workspaces/isaac_ros-dev/models/yolov8s.engine',
+                description='The absolute file path to the TensorRT engine file'
+            ),
+            DeclareLaunchArgument(
+                'input_tensor_names',
+                default_value='["input_tensor"]',
+                description='A list of tensor names to bound to the specified input binding names'
+            ),
+            DeclareLaunchArgument(
+                'input_binding_names',
+                default_value='["images"]',
+                description='A list of input tensor binding names (specified by model)'
+            ),
+            DeclareLaunchArgument(
+                'image_input_topic',
+                default_value='/image',
+                description='Input image topic name'
+            ),
+            DeclareLaunchArgument(
+                'camera_info_input_topic',
+                default_value='/camera_info',
+                description='Input camera info topic name'
+            ),
+            DeclareLaunchArgument(
+                'output_tensor_names',
+                default_value='["output_tensor"]',
+                description='A list of tensor names to bound to the specified output binding names'
+            ),
+            DeclareLaunchArgument(
+                'output_binding_names',
+                default_value='["output0"]',
+                description='A list of output tensor binding names (specified by model)'
+            ),
+            DeclareLaunchArgument(
+                'verbose',
+                default_value='False',
+                description='Whether TensorRT should verbosely log or not'
+            ),
+            DeclareLaunchArgument(
+                'force_engine_update',
+                default_value='False',
+                description='Whether TensorRT should update the TensorRT engine file or not'
+            ),
+            DeclareLaunchArgument(
+                'confidence_threshold',
+                default_value='0.25',
+                description='Confidence threshold to filter candidate detections during NMS'
+            ),
+            DeclareLaunchArgument(
+                'nms_threshold',
+                default_value='0.45',
+                description='NMS IOU threshold'
+            ),
+            DeclareLaunchArgument(
+                'namespace',
+                default_value='',
+                description='Namespace for the nodes'
+            ),
     ]
 
     # Namespace
@@ -106,11 +169,12 @@ def generate_launch_description():
             'image_mean': image_mean,
             'image_stddev': image_stddev,
             'attach_to_shared_component_container': 'True',
-            'component_container_name': 'tensor_rt_container',
-            'dnn_image_encoder_namespace': 'yolov8_encoder',
-            'image_input_topic': '/image',
-            'camera_info_input_topic': '/camera_info',
-            'tensor_output_topic': '/tensor_pub',
+            'component_container_name': [namespace, '/tensor_rt_container'],
+            'dnn_image_encoder_namespace': namespace,
+            'image_input_topic': 'image',
+            'camera_info_input_topic': 'camera_info',
+            'tensor_output_topic': 'tensor_pub',
+
         }.items(),
     )
 
@@ -129,7 +193,6 @@ def generate_launch_description():
             'verbose': verbose,
             'force_engine_update': force_engine_update,
         }],
-        namespace=namespace
     )
 
     yolov8_decoder_node = ComposableNode(
@@ -140,10 +203,9 @@ def generate_launch_description():
         parameters=[{
             'confidence_threshold': confidence_threshold,
             'nms_threshold': nms_threshold,
-            'target_width' : 1280,
-            'target_height' : 720,
+            'target_width' : 640,
+            'target_height' : 480,
         }],
-        namespace=namespace
     )
 
     tensor_rt_container = ComposableNodeContainer(

@@ -1,25 +1,9 @@
 #!/usr/bin/env python3
-
-# SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
 # SPDX-License-Identifier: Apache-2.0
 
-# This script listens for images and object detections on the image,
-# then renders the output boxes on top of the image and publishes
-# the result as an image message
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import cv2
 import cv_bridge
@@ -29,172 +13,157 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 from vision_msgs.msg import Detection2DArray
 
+# Only class 0 (“person”) will be visualized
+names = {0: 'person'}
 
 
-# names = {
-#         0: 'liquid',
-#         1: 'solid',
-#         2: 'stain',
-# }
+class MJPEGHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path != '/stream.mjpg':
+            self.send_error(404)
+            return
 
-# names = {
-#         0: 'dirt',
-#         1: 'dry',
-# }
+        self.send_response(200)
+        self.send_header('Age', '0')
+        self.send_header('Cache-Control', 'no-cache, private')
+        self.send_header('Pragma', 'no-cache')
+        self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
+        self.end_headers()
 
-print("Detection 2d array:", Detection2DArray)
+        try:
+            while True:
+                frame = self.server.latest_frame
+                if frame is None:
+                    time.sleep(0.05)
+                    continue
 
-names = {
-        0: 'person',
-        1: 'bicycle',
-        2: 'car',
-        3: 'motorcycle',
-        4: 'airplane',
-        5: 'bus',
-        6: 'train',
-        7: 'truck',
-        8: 'boat',
-        9: 'traffic light',
-        10: 'fire hydrant',
-        11: 'stop sign',
-        12: 'parking meter',
-        13: 'bench',
-        14: 'bird',
-        15: 'cat',
-        16: 'dog',
-        17: 'horse',
-        18: 'sheep',
-        19: 'cow',
-        20: 'elephant',
-        21: 'bear',
-        22: 'zebra',
-        23: 'giraffe',
-        24: 'backpack',
-        25: 'umbrella',
-        26: 'handbag',
-        27: 'tie',
-        28: 'suitcase',
-        29: 'frisbee',
-        30: 'skis',
-        31: 'snowboard',
-        32: 'sports ball',
-        33: 'kite',
-        34: 'baseball bat',
-        35: 'baseball glove',
-        36: 'skateboard',
-        37: 'surfboard',
-        38: 'tennis racket',
-        39: 'bottle',
-        40: 'wine glass',
-        41: 'cup',
-        42: 'fork',
-        43: 'knife',
-        44: 'spoon',
-        45: 'bowl',
-        46: 'banana',
-        47: 'apple',
-        48: 'sandwich',
-        49: 'orange',
-        50: 'broccoli',
-        51: 'carrot',
-        52: 'hot dog',
-        53: 'pizza',
-        54: 'donut',
-        55: 'cake',
-        56: 'chair',
-        57: 'couch',
-        58: 'potted plant',
-        59: 'bed',
-        60: 'dining table',
-        61: 'toilet',
-        62: 'tv',
-        63: 'laptop',
-        64: 'mouse',
-        65: 'remote',
-        66: 'keyboard',
-        67: 'cell phone',
-        68: 'microwave',
-        69: 'oven',
-        70: 'toaster',
-        71: 'sink',
-        72: 'refrigerator',
-        73: 'book',
-        74: 'clock',
-        75: 'vase',
-        76: 'scissors',
-        77: 'teddy bear',
-        78: 'hair drier',
-        79: 'toothbrush',
-}
+                # frame is already BGR
+                ret, jpeg = cv2.imencode('.jpg', frame)
+                if not ret:
+                    continue
+                data = jpeg.tobytes()
+
+                self.wfile.write(b'--frame\r\n')
+                self.wfile.write(b'Content-Type: image/jpeg\r\n\r\n')
+                self.wfile.write(data)
+                self.wfile.write(b'\r\n')
+                time.sleep(1.0 / self.server.fps)
+        except Exception:
+            pass
 
 
 class Yolov8Visualizer(Node):
-    QUEUE_SIZE = 10
-    color = (0, 255, 0)
-    bbox_thickness = 2
+    QUEUE_SIZE     = 10
+    box_color      = (0xFF, 0xE0, 0x42)  # BGR for #FFE042
+    bbox_radius    = 16
+    bbox_thickness = 4
+    fill_alpha     = 0.2
 
     def __init__(self):
         super().__init__('yolov8_visualizer')
+        self.declare_parameter('fps',       30.0)
+        self.declare_parameter('http_port', 8080)
+        self.fps       = float(self.get_parameter('fps').get_parameter_value().double_value)
+        self.http_port = int(self.get_parameter('http_port').get_parameter_value().integer_value)
+
         self._bridge = cv_bridge.CvBridge()
-        self._processed_image_pub = self.create_publisher(
-            Image, 'yolov8_processed_image',  self.QUEUE_SIZE)
+        self._pub    = self.create_publisher(Image, 'yolov8_processed_image', self.QUEUE_SIZE)
 
-        self._detections_subscription = message_filters.Subscriber(
-            self,
-            Detection2DArray,
-            'detections_output')
-        self._image_subscription = message_filters.Subscriber(
-            self,
-            Image,
-            '/yolov8_encoder/resize/image')
+        det_sub = message_filters.Subscriber(self, Detection2DArray, 'detections_output')
+        img_sub = message_filters.Subscriber(self, Image, 'resize/image')
+        ts      = message_filters.TimeSynchronizer([det_sub, img_sub], self.QUEUE_SIZE)
+        ts.registerCallback(self.detections_callback)
 
-        self.time_synchronizer = message_filters.TimeSynchronizer(
-            [self._detections_subscription, self._image_subscription],
-            self.QUEUE_SIZE)
+        self._latest_frame = None
+        self._start_mjpeg_server()
 
-        self.time_synchronizer.registerCallback(self.detections_callback)
+    def _start_mjpeg_server(self):
+        server = ThreadingHTTPServer(('', self.http_port), MJPEGHandler)
+        server.latest_frame = None
+        server.fps = self.fps
+        self._http_server = server
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.get_logger().info(
+            f'MJPEG HTTP server started on port {self.http_port} at /stream.mjpg'
+        )
+
+    def _draw_rounded_box(self, img, pt1, pt2, color, radius, thickness, alpha):
+        x1, y1 = pt1
+        x2, y2 = pt2
+        overlay = img.copy()
+
+        # Semi‑transparent fill
+        cv2.rectangle(overlay, (x1+radius, y1), (x2-radius, y2), color, -1)
+        cv2.rectangle(overlay, (x1, y1+radius), (x2, y2-radius), color, -1)
+        for cx, cy in [(x1+radius,y1+radius), (x2-radius,y1+radius),
+                       (x2-radius,y2-radius), (x1+radius,y2-radius)]:
+            cv2.circle(overlay, (cx, cy), radius, color, -1)
+        cv2.addWeighted(overlay, alpha, img, 1-alpha, 0, img)
+
+        # Inside stroke
+        half = thickness//2
+        ix1, iy1 = x1+half, y1+half
+        ix2, iy2 = x2-half, y2-half
+        ir = max(radius-half, 0)
+        # edges
+        cv2.line(img, (ix1+ir,iy1), (ix2-ir,iy1), color, thickness)
+        cv2.line(img, (ix1+ir,iy2), (ix2-ir,iy2), color, thickness)
+        cv2.line(img, (ix1,iy1+ir), (ix1,iy2-ir), color, thickness)
+        cv2.line(img, (ix2,iy1+ir), (ix2,iy2-ir), color, thickness)
+        # corners
+        cv2.ellipse(img, (ix1+ir,iy1+ir), (ir,ir), 180, 0, 90, color, thickness)
+        cv2.ellipse(img, (ix2-ir,iy1+ir), (ir,ir), 270, 0, 90, color, thickness)
+        cv2.ellipse(img, (ix2-ir,iy2-ir), (ir,ir),   0, 0, 90, color, thickness)
+        cv2.ellipse(img, (ix1+ir,iy2-ir), (ir,ir),  90, 0, 90, color, thickness)
 
     def detections_callback(self, detections_msg, img_msg):
-        txt_color = (255, 0, 255)
-        cv2_img = self._bridge.imgmsg_to_cv2(img_msg)
-        for detection in detections_msg.detections:
-            
-            center_x = detection.bbox.center.position.x
-            center_y = detection.bbox.center.position.y
-            width = detection.bbox.size_x
-            height = detection.bbox.size_y
+        frame = self._bridge.imgmsg_to_cv2(img_msg)
 
-            label = names[int(detection.results[0].hypothesis.class_id)]
-            conf_score = detection.results[0].hypothesis.score
-            label = f'{label} {conf_score:.2f}'
+        # Draw rounded boxes for class 0
+        for det in detections_msg.detections:
+            cid = int(det.results[0].hypothesis.class_id)
+            if cid != 0: continue
+            cx, cy = det.bbox.center.position.x, det.bbox.center.position.y
+            w, h   = det.bbox.size_x, det.bbox.size_y
+            pt1 = (int(cx-w/2), int(cy-h/2))
+            pt2 = (int(cx+w/2), int(cy+h/2))
+            self._draw_rounded_box(
+                frame, pt1, pt2,
+                color=self.box_color,
+                radius=self.bbox_radius,
+                thickness=self.bbox_thickness,
+                alpha=self.fill_alpha,
+            )
 
-            min_pt = (round(center_x - (width / 2.0)),
-                      round(center_y - (height / 2.0)))
-            max_pt = (round(center_x + (width / 2.0)),
-                      round(center_y + (height / 2.0)))
+        # Republish to ROS
+        out = self._bridge.cv2_to_imgmsg(frame, encoding=img_msg.encoding)
+        out.header = img_msg.header
+        self._pub.publish(out)
 
-            lw = max(round((img_msg.height + img_msg.width) / 2 * 0.003), 2)  # line width
-            tf = max(lw - 1, 1)  # font thickness
-            # text width, height
-            w, h = cv2.getTextSize(label, 0, fontScale=lw / 3, thickness=tf)[0]
-            outside = min_pt[1] - h >= 3
+        # Convert RGB→BGR if needed for MJPEG
+        frame_for_mjpeg = frame
+        if img_msg.encoding.lower().startswith('rgb'):
+            frame_for_mjpeg = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
-            cv2.rectangle(cv2_img, min_pt, max_pt,
-                          self.color, self.bbox_thickness)
-            cv2.putText(cv2_img, label, (min_pt[0], min_pt[1]-2 if outside else min_pt[1]+h+2),
-                        0, lw / 3, txt_color, thickness=tf, lineType=cv2.LINE_AA)
+        # Update MJPEG frame
+        self._latest_frame = frame_for_mjpeg
+        if hasattr(self, '_http_server'):
+            self._http_server.latest_frame = frame_for_mjpeg
 
-
-        processed_img = self._bridge.cv2_to_imgmsg(
-            cv2_img, encoding=img_msg.encoding)
-        processed_img.header = img_msg.header
-        self._processed_image_pub.publish(processed_img)
+    def destroy_node(self):
+        if hasattr(self, '_http_server'):
+            self._http_server.shutdown()
+        super().destroy_node()
 
 
 def main():
     rclpy.init()
-    rclpy.spin(Yolov8Visualizer())
-    rclpy.shutdown()
+    node = Yolov8Visualizer()
+    try:
+        rclpy.spin(node)
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
 
 if __name__ == '__main__':

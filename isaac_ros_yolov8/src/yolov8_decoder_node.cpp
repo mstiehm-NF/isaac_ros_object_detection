@@ -26,12 +26,14 @@
 #include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list_view.hpp"
 #include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list.hpp"
 
+
 #include <opencv4/opencv2/opencv.hpp>
 #include <opencv4/opencv2/dnn.hpp>
 #include <opencv4/opencv2/dnn/dnn.hpp>
 
 #include "vision_msgs/msg/detection2_d_array.hpp"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+
 
 namespace nvidia
 {
@@ -53,52 +55,52 @@ YoloV8DecoderNode::YoloV8DecoderNode(const rclcpp::NodeOptions options)
   tensor_name_{declare_parameter<std::string>("tensor_name", "output_tensor")},
   confidence_threshold_{declare_parameter<double>("confidence_threshold", 0.25)},
   nms_threshold_{declare_parameter<double>("nms_threshold", 0.45)},
-  num_classes_{declare_parameter<int64_t>("num_classes", 3)},
-  target_width_{declare_parameter<int>("target_width", 1280)},
-  target_height_{declare_parameter<long int>("target_height", 720)}
+  num_classes_{declare_parameter<int64_t>("num_classes", 80)}
 {}
 
 YoloV8DecoderNode::~YoloV8DecoderNode() = default;
 
-void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTensorListView& msg)
+void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTensorListView & msg)
 {
-  long int num_classes = num_classes_;
-
   auto tensor = msg.GetNamedTensor(tensor_name_);
   size_t buffer_size{tensor.GetTensorSize()};
-  std::vector<float> results_vector(buffer_size);
+  std::vector<float> results_vector{};
+  results_vector.resize(buffer_size);
   cudaMemcpy(results_vector.data(), tensor.GetBuffer(), buffer_size, cudaMemcpyDefault);
-
-  int out_dim = 8400;
-  float* results_data = results_vector.data();
 
   std::vector<cv::Rect> bboxes;
   std::vector<float> scores;
   std::vector<int> indices;
   std::vector<int> classes;
 
-  bboxes.reserve(out_dim);
-  scores.reserve(out_dim);
-  classes.reserve(out_dim);
+  //  Output dimensions = [1, 84, 8400]
+  int out_dim = 8400;
+  float * results_data = reinterpret_cast<float *>(results_vector.data());
 
   for (int i = 0; i < out_dim; i++) {
-    float x = results_data[i];
-    float y = results_data[out_dim + i];
-    float w = results_data[2 * out_dim + i];
-    float h = results_data[3 * out_dim + i];
+    float x = *(results_data + i);
+    float y = *(results_data + (out_dim * 1) + i);
+    float w = *(results_data + (out_dim * 2) + i);
+    float h = *(results_data + (out_dim * 3) + i);
 
-    float max_conf = 0.0f;
-    int max_index = 0;
-    for (int j = 0; j < num_classes; j++) {
-      float conf = results_data[(4 + j) * out_dim + i];
-      if (conf > max_conf) {
-        max_conf = conf;
-        max_index = j;
-      }
+    float x1 = (x - (0.5 * w));
+    float y1 = (y - (0.5 * h));
+    float width = w;
+    float height = h;
+
+    std::vector<float> conf;
+    for (int j = 0; j < num_classes_; j++) {
+      conf.push_back(*(results_data + (out_dim * (4 + j)) + i));
     }
 
-    bboxes.emplace_back(x, y, w, h);
-    scores.push_back(max_conf);
+    std::vector<float>::iterator ind_max_conf;
+    ind_max_conf = std::max_element(std::begin(conf), std::end(conf));
+    int max_index = distance(std::begin(conf), ind_max_conf);
+    float val_max_conf = *max_element(std::begin(conf), std::end(conf));
+
+    bboxes.push_back(cv::Rect(x1, y1, width, height));
+    indices.push_back(i);
+    scores.push_back(val_max_conf);
     classes.push_back(max_index);
   }
 
@@ -108,73 +110,40 @@ void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTen
 
   vision_msgs::msg::Detection2DArray final_detections_arr;
 
-  final_detections_arr.header.stamp.sec = msg.GetTimestampSeconds();
-  final_detections_arr.header.stamp.nanosec = msg.GetTimestampNanoseconds();
-  final_detections_arr.header.frame_id = msg.GetFrameId();
-
-  for (const auto& ind : indices) {
+  for (size_t i = 0; i < indices.size(); i++) {
+    int ind = indices[i];
     vision_msgs::msg::Detection2D detection;
+
+    geometry_msgs::msg::Pose center;
+    geometry_msgs::msg::Point position;
+    geometry_msgs::msg::Quaternion orientation;
+
+    // 2D object Bbox
     vision_msgs::msg::BoundingBox2D bbox;
-
-    float aspect_ratio = static_cast<float>(target_width_) / target_height_;
-
-    float x_center, y_center, w, h;
-
-    if (aspect_ratio > 1.0) {
-      float width = 640.0;
-      float height = 360.0;
-      float width_scale = static_cast<float>(target_width_) / width;
-      float height_scale = static_cast<float>(target_height_) / height;
-
-      float x1_scaled = bboxes[ind].x * width_scale;
-      float y1_scaled = bboxes[ind].y * height_scale;
-      w = bboxes[ind].width * width_scale;
-      h = bboxes[ind].height * height_scale;
-      y_center = y1_scaled + (640 - height);
-      x_center = x1_scaled;
-
-    } else if (aspect_ratio < 1.0) {
-      float width = 640 / aspect_ratio;
-      float height = 640;
-      float width_scale = static_cast<float>(target_width_) / width;
-      float height_scale = static_cast<float>(target_height_) / height;
-
-      float x1_scaled = bboxes[ind].x * width_scale;
-      float y1_scaled = bboxes[ind].y * height_scale;
-      w = bboxes[ind].width * width_scale;
-      h = bboxes[ind].height * height_scale;
-      y_center = y1_scaled;
-      x_center = x1_scaled - (640 - width);
-
-    } else {
-      float width = 640;
-      float height = 640;
-      float width_scale = static_cast<float>(target_width_) / width;
-      float height_scale = static_cast<float>(target_height_) / height;
-
-      float x1_scaled = bboxes[ind].x * width_scale;
-      float y1_scaled = bboxes[ind].y * height_scale;
-      w = bboxes[ind].width * width_scale;
-      h = bboxes[ind].height * height_scale;
-      y_center = y1_scaled;
-      x_center = x1_scaled;
-    }
-
+    float w = bboxes[ind].width;
+    float h = bboxes[ind].height;
+    float x_center = bboxes[ind].x + (0.5 * w);
+    float y_center = bboxes[ind].y + (0.5 * h);
     detection.bbox.center.position.x = x_center;
     detection.bbox.center.position.y = y_center;
     detection.bbox.size_x = w;
     detection.bbox.size_y = h;
 
+
+    // Class probabilities
     vision_msgs::msg::ObjectHypothesisWithPose hyp;
-    hyp.hypothesis.class_id = std::to_string(classes[ind]);
-    hyp.hypothesis.score = scores[ind];
+    hyp.hypothesis.class_id = std::to_string(classes.at(ind));
+    hyp.hypothesis.score = scores.at(ind);
     detection.results.push_back(hyp);
 
-    detection.header.stamp = final_detections_arr.header.stamp;
-    detection.header.frame_id = final_detections_arr.header.frame_id;
+    detection.header.stamp.sec = msg.GetTimestampSeconds();
+    detection.header.stamp.nanosec = msg.GetTimestampNanoseconds();
+
     final_detections_arr.detections.push_back(detection);
   }
 
+  final_detections_arr.header.stamp.sec = msg.GetTimestampSeconds();
+  final_detections_arr.header.stamp.nanosec = msg.GetTimestampNanoseconds();
   pub_->publish(final_detections_arr);
 }
 

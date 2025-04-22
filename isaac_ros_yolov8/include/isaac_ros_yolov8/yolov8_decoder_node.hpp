@@ -20,11 +20,11 @@
 
 #include <memory>
 #include <string>
-#include <vector>
-#include <opencv4/opencv2/core/types.hpp>
 
 #include "rclcpp/rclcpp.hpp"
+
 #include "isaac_ros_managed_nitros/managed_nitros_subscriber.hpp"
+
 #include "std_msgs/msg/string.hpp"
 #include "vision_msgs/msg/detection2_d_array.hpp"
 #include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list_view.hpp"
@@ -54,14 +54,12 @@ private:
   rclcpp::Publisher<vision_msgs::msg::Detection2DArray>::SharedPtr pub_;
 
   // Name of tensor in NitrosTensorList
-  std::string tensor_name_;
+  std::string tensor_name_{};
 
   // YOLOv8 Decoder Parameters
   double confidence_threshold_{};
   double nms_threshold_{};
   int64_t num_classes_{};
-  long int target_width_;
-  long int target_height_;
 };
 
 }  // namespace yolov8
