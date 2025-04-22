@@ -12,20 +12,10 @@ def generate_launch_description():
     pkg_dir = get_package_share_directory('isaac_ros_yolov8')
 
     # --- Declare launch arguments ---
-    output_arg = DeclareLaunchArgument(
-        'output_mode',
-        default_value='v4l2',
-        description='Stream output mode: "v4l2" or "rtsp"'
-    )
-    device_arg = DeclareLaunchArgument(
-        'device',
-        default_value='/dev/video9',
-        description='v4l2loopback device (only used if output_mode=v4l2)'
-    )
-    rtsp_url_arg = DeclareLaunchArgument(
-        'rtsp_url',
-        default_value='rtsp://0.0.0.0:8554/live.sdp',
-        description='RTSP listen URL (only used if output_mode=rtsp)'
+    http_port_arg = DeclareLaunchArgument(
+        'http_port',
+        default_value='8080',
+        description='HTTP port for the MJPEG stream'
     )
     fps_arg = DeclareLaunchArgument(
         'fps',
@@ -39,17 +29,13 @@ def generate_launch_description():
     )
 
     # --- LaunchConfigurations ---
-    output_mode = LaunchConfiguration('output_mode')
-    device      = LaunchConfiguration('device')
-    rtsp_url    = LaunchConfiguration('rtsp_url')
+    http_port  = LaunchConfiguration('http_port')
     fps         = LaunchConfiguration('fps')
     namespace   = LaunchConfiguration('namespace')
 
     return LaunchDescription([
         ns_arg,
-        output_arg,
-        device_arg,
-        rtsp_url_arg,
+        http_port_arg,
         fps_arg,
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
@@ -64,9 +50,7 @@ def generate_launch_description():
             name='yolov8_visualizer',
             namespace=namespace,
             parameters=[
-                {'output':   output_mode},
-                {'device':   device},
-                {'rtsp_url': rtsp_url},
+                {'http_port':  http_port},
                 {'fps':      fps}
             ]
         ),
