@@ -79,7 +79,7 @@ class Yolov8Visualizer(Node):
         det_sub = message_filters.Subscriber(
             self, Detection2DArray, 'detections_output')
         img_sub = message_filters.Subscriber(
-            self, Image, '/yolov8_encoder/resize/image')
+            self, Image, 'resize/image')
         ts = message_filters.TimeSynchronizer(
             [det_sub, img_sub], self.QUEUE_SIZE)
         ts.registerCallback(self.detections_callback)
