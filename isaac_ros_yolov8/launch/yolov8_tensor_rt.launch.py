@@ -71,7 +71,7 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 'engine_file_path',
-                default_value='/workspaces/isaac_ros-dev/models/yolov8s.plan',
+                default_value='/workspaces/isaac_ros-dev/models/yolov8s.engine',
                 description='The absolute file path to the TensorRT engine file'
             ),
             DeclareLaunchArgument(

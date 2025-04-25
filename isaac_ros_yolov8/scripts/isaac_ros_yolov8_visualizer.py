@@ -13,7 +13,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 from vision_msgs.msg import Detection2DArray
 
-# Only class 0 (“person”) will be visualized
+# Only class 0 (“person”) will be visualized
 names = {0: 'person'}
 
 
@@ -27,7 +27,10 @@ class MJPEGHandler(BaseHTTPRequestHandler):
         self.send_header('Age', '0')
         self.send_header('Cache-Control', 'no-cache, private')
         self.send_header('Pragma', 'no-cache')
-        self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
+        self.send_header(
+            'Content-Type',
+            'multipart/x-mixed-replace; boundary=frame'
+        )
         self.end_headers()
 
         try:
@@ -37,7 +40,7 @@ class MJPEGHandler(BaseHTTPRequestHandler):
                     time.sleep(0.05)
                     continue
 
-                # frame is already BGR
+                # frame is already BGR & flipped
                 ret, jpeg = cv2.imencode('.jpg', frame)
                 if not ret:
                     continue
@@ -54,7 +57,8 @@ class MJPEGHandler(BaseHTTPRequestHandler):
 
 class Yolov8Visualizer(Node):
     QUEUE_SIZE     = 10
-    box_color      = (0xFF, 0xE0, 0x42)  # BGR for #FFE042
+    # RGB for #FFE042 but OpenCV uses BGR
+    box_color      = (0xFF, 0xE0, 0x42)
     bbox_radius    = 16
     bbox_thickness = 4
     fill_alpha     = 0.2
@@ -63,15 +67,21 @@ class Yolov8Visualizer(Node):
         super().__init__('yolov8_visualizer')
         self.declare_parameter('fps',       30.0)
         self.declare_parameter('http_port', 8080)
-        self.fps       = float(self.get_parameter('fps').get_parameter_value().double_value)
-        self.http_port = int(self.get_parameter('http_port').get_parameter_value().integer_value)
+        self.fps       = float(self.get_parameter('fps')
+                                .get_parameter_value().double_value)
+        self.http_port = int(self.get_parameter('http_port')
+                                .get_parameter_value().integer_value)
 
         self._bridge = cv_bridge.CvBridge()
-        self._pub    = self.create_publisher(Image, 'yolov8_processed_image', self.QUEUE_SIZE)
+        self._pub    = self.create_publisher(
+            Image, 'yolov8_processed_image', self.QUEUE_SIZE)
 
-        det_sub = message_filters.Subscriber(self, Detection2DArray, 'detections_output')
-        img_sub = message_filters.Subscriber(self, Image, 'resize/image')
-        ts      = message_filters.TimeSynchronizer([det_sub, img_sub], self.QUEUE_SIZE)
+        det_sub = message_filters.Subscriber(
+            self, Detection2DArray, 'detections_output')
+        img_sub = message_filters.Subscriber(
+            self, Image, '/yolov8_encoder/resize/image')
+        ts = message_filters.TimeSynchronizer(
+            [det_sub, img_sub], self.QUEUE_SIZE)
         ts.registerCallback(self.detections_callback)
 
         self._latest_frame = None
@@ -92,41 +102,46 @@ class Yolov8Visualizer(Node):
         x2, y2 = pt2
         overlay = img.copy()
 
-        # Semi‑transparent fill
+        # Semi-transparent fill
         cv2.rectangle(overlay, (x1+radius, y1), (x2-radius, y2), color, -1)
         cv2.rectangle(overlay, (x1, y1+radius), (x2, y2-radius), color, -1)
-        for cx, cy in [(x1+radius,y1+radius), (x2-radius,y1+radius),
-                       (x2-radius,y2-radius), (x1+radius,y2-radius)]:
+        for cx, cy in [
+            (x1+radius,y1+radius), (x2-radius,y1+radius),
+            (x2-radius,y2-radius), (x1+radius,y2-radius),
+        ]:
             cv2.circle(overlay, (cx, cy), radius, color, -1)
         cv2.addWeighted(overlay, alpha, img, 1-alpha, 0, img)
 
         # Inside stroke
-        half = thickness//2
-        ix1, iy1 = x1+half, y1+half
-        ix2, iy2 = x2-half, y2-half
-        ir = max(radius-half, 0)
-        # edges
-        cv2.line(img, (ix1+ir,iy1), (ix2-ir,iy1), color, thickness)
-        cv2.line(img, (ix1+ir,iy2), (ix2-ir,iy2), color, thickness)
-        cv2.line(img, (ix1,iy1+ir), (ix1,iy2-ir), color, thickness)
-        cv2.line(img, (ix2,iy1+ir), (ix2,iy2-ir), color, thickness)
-        # corners
-        cv2.ellipse(img, (ix1+ir,iy1+ir), (ir,ir), 180, 0, 90, color, thickness)
-        cv2.ellipse(img, (ix2-ir,iy1+ir), (ir,ir), 270, 0, 90, color, thickness)
-        cv2.ellipse(img, (ix2-ir,iy2-ir), (ir,ir),   0, 0, 90, color, thickness)
-        cv2.ellipse(img, (ix1+ir,iy2-ir), (ir,ir),  90, 0, 90, color, thickness)
+        half = thickness // 2
+        ix1, iy1 = x1 + half, y1 + half
+        ix2, iy2 = x2 - half, y2 - half
+        ir = max(radius - half, 0)
+
+        # Edges
+        cv2.line(img, (ix1+ir, iy1), (ix2-ir, iy1), color, thickness)
+        cv2.line(img, (ix1+ir, iy2), (ix2-ir, iy2), color, thickness)
+        cv2.line(img, (ix1, iy1+ir), (ix1, iy2-ir), color, thickness)
+        cv2.line(img, (ix2, iy1+ir), (ix2, iy2-ir), color, thickness)
+        # Corners
+        cv2.ellipse(img, (ix1+ir, iy1+ir), (ir, ir), 180,   0,  90, color, thickness)
+        cv2.ellipse(img, (ix2-ir, iy1+ir), (ir, ir), 270,   0,  90, color, thickness)
+        cv2.ellipse(img, (ix2-ir, iy2-ir), (ir, ir),   0,   0,  90, color, thickness)
+        cv2.ellipse(img, (ix1+ir, iy2-ir), (ir, ir),  90,   0,  90, color, thickness)
 
     def detections_callback(self, detections_msg, img_msg):
+        # 1) Decode to OpenCV
         frame = self._bridge.imgmsg_to_cv2(img_msg)
 
-        # Draw rounded boxes for class 0
+        # 2) Draw only class 0 with rounded boxes
         for det in detections_msg.detections:
             cid = int(det.results[0].hypothesis.class_id)
-            if cid != 0: continue
+            if cid != 0:
+                continue
             cx, cy = det.bbox.center.position.x, det.bbox.center.position.y
             w, h   = det.bbox.size_x, det.bbox.size_y
-            pt1 = (int(cx-w/2), int(cy-h/2))
-            pt2 = (int(cx+w/2), int(cy+h/2))
+            pt1 = (int(cx - w/2), int(cy - h/2))
+            pt2 = (int(cx + w/2), int(cy + h/2))
             self._draw_rounded_box(
                 frame, pt1, pt2,
                 color=self.box_color,
@@ -135,17 +150,20 @@ class Yolov8Visualizer(Node):
                 alpha=self.fill_alpha,
             )
 
-        # Republish to ROS
-        out = self._bridge.cv2_to_imgmsg(frame, encoding=img_msg.encoding)
-        out.header = img_msg.header
-        self._pub.publish(out)
+        # 3) Flip vertically (fast native C call)
+        frame = cv2.flip(frame, 0)
 
-        # Convert RGB→BGR if needed for MJPEG
+        # 4) Republish to ROS
+        out_msg = self._bridge.cv2_to_imgmsg(frame, encoding=img_msg.encoding)
+        out_msg.header = img_msg.header
+        self._pub.publish(out_msg)
+
+        # 5) Ensure BGR order for MJPEG
         frame_for_mjpeg = frame
         if img_msg.encoding.lower().startswith('rgb'):
             frame_for_mjpeg = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
-        # Update MJPEG frame
+        # 6) Update the MJPEG frame
         self._latest_frame = frame_for_mjpeg
         if hasattr(self, '_http_server'):
             self._http_server.latest_frame = frame_for_mjpeg
@@ -164,7 +182,6 @@ def main():
     finally:
         node.destroy_node()
         rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()
