@@ -56,12 +56,13 @@ class MJPEGHandler(BaseHTTPRequestHandler):
 
 
 class Yolov8Visualizer(Node):
-    QUEUE_SIZE     = 10
+    QUEUE_SIZE       = 10
     # RGB for #FFE042 but OpenCV uses BGR
-    box_color      = (0xFF, 0xE0, 0x42)
-    bbox_radius    = 16
-    bbox_thickness = 4
-    fill_alpha     = 0.2
+    box_color        = (0x42, 0xE0, 0xFF)
+    bbox_radius      = 16
+    bbox_thickness   = 4
+    fill_alpha       = 0.2
+    min_box_size_px  = 40   # <-- minimum width & height
 
     def __init__(self):
         super().__init__('yolov8_visualizer')
@@ -79,7 +80,7 @@ class Yolov8Visualizer(Node):
         det_sub = message_filters.Subscriber(
             self, Detection2DArray, 'detections_output')
         img_sub = message_filters.Subscriber(
-            self, Image, '/yolov8_encoder/resize/image')
+            self, Image, 'resize/image')
         ts = message_filters.TimeSynchronizer(
             [det_sub, img_sub], self.QUEUE_SIZE)
         ts.registerCallback(self.detections_callback)
@@ -106,8 +107,8 @@ class Yolov8Visualizer(Node):
         cv2.rectangle(overlay, (x1+radius, y1), (x2-radius, y2), color, -1)
         cv2.rectangle(overlay, (x1, y1+radius), (x2, y2-radius), color, -1)
         for cx, cy in [
-            (x1+radius,y1+radius), (x2-radius,y1+radius),
-            (x2-radius,y2-radius), (x1+radius,y2-radius),
+            (x1+radius, y1+radius), (x2-radius, y1+radius),
+            (x2-radius, y2-radius), (x1+radius, y2-radius),
         ]:
             cv2.circle(overlay, (cx, cy), radius, color, -1)
         cv2.addWeighted(overlay, alpha, img, 1-alpha, 0, img)
@@ -133,13 +134,20 @@ class Yolov8Visualizer(Node):
         # 1) Decode to OpenCV
         frame = self._bridge.imgmsg_to_cv2(img_msg)
 
-        # 2) Draw only class 0 with rounded boxes
+        # 2) Draw only class 0 with rounded boxes, applying size filter
         for det in detections_msg.detections:
             cid = int(det.results[0].hypothesis.class_id)
             if cid != 0:
                 continue
-            cx, cy = det.bbox.center.position.x, det.bbox.center.position.y
-            w, h   = det.bbox.size_x, det.bbox.size_y
+
+            w = det.bbox.size_x
+            h = det.bbox.size_y
+            # skip boxes smaller than threshold on either side
+            if w < self.min_box_size_px or h < self.min_box_size_px:
+                continue
+
+            cx = det.bbox.center.position.x
+            cy = det.bbox.center.position.y
             pt1 = (int(cx - w/2), int(cy - h/2))
             pt2 = (int(cx + w/2), int(cy + h/2))
             self._draw_rounded_box(
@@ -182,6 +190,7 @@ def main():
     finally:
         node.destroy_node()
         rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
