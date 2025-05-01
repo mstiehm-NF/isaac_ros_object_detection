@@ -150,17 +150,42 @@ class Yolov8WsVisualizer(Node):
 
     def detections_callback(self, det_msg: Detection2DArray, img_msg: Image):
         """Callback for synchronized detection and image messages."""
-        # --- Optimization: Check if WS clients are connected --- (Optimization #3 part 1)
         has_ws_clients = bool(self._ws_clients)
-        # ---
 
         try:
-            frame = self._bridge.imgmsg_to_cv2(img_msg)
+            # Convert ROS msg to OpenCV frame. cv_bridge might convert based on encoding.
+            # Let's assume it gives us a frame matching img_msg.encoding for now.
+            frame_initial = self._bridge.imgmsg_to_cv2(img_msg) # Removed desired_encoding
+
+            # --- Explicitly ensure frame is BGR for drawing ---
+            if 'rgb' in img_msg.encoding.lower():
+                # If the input encoding was RGB, convert the frame to BGR
+                frame = cv2.cvtColor(frame_initial, cv2.COLOR_RGB2BGR)
+            elif 'bgr' in img_msg.encoding.lower():
+                # If the input encoding was already BGR, use it directly
+                frame = frame_initial
+            elif 'mono' in img_msg.encoding.lower():
+                 # If mono, convert to BGR for color drawing (boxes will be color)
+                 frame = cv2.cvtColor(frame_initial, cv2.COLOR_GRAY2BGR)
+            else:
+                 # Fallback or handle other encodings if necessary
+                 self.get_logger().warn(f"Unsupported input encoding {img_msg.encoding}, attempting BGR conversion.", throttle_duration_sec=5)
+                 # Try a generic conversion, might fail or be incorrect
+                 try:
+                      frame = cv2.cvtColor(frame_initial, cv2.COLOR_YUV2BGR_YUYV) # Example for YUYV
+                 except cv2.error:
+                      self.get_logger().error(f"Could not convert encoding {img_msg.encoding} to BGR. Skipping frame.")
+                      return
+
         except cv_bridge.CvBridgeError as e:
             self.get_logger().error(f'CvBridgeError converting image: {e}')
             return
+        except Exception as e: # Catch potential cvtColor errors too
+            self.get_logger().error(f'Error during color conversion: {e}')
+            return
 
-        # --- Drawing happens regardless of WS clients (as requested) ---
+
+        # --- Drawing happens on the BGR frame ---
         for det in det_msg.detections:
             cid = int(det.results[0].hypothesis.class_id)
             if cid != 0: continue
@@ -170,23 +195,25 @@ class Yolov8WsVisualizer(Node):
             cy = det.bbox.center.position.y
             pt1 = (int(cx - w/2), int(cy - h/2))
             pt2 = (int(cx + w/2), int(cy + h/2))
-            # --- Call original drawing function ---
             self._draw_rounded_box(frame, pt1, pt2, self.box_color, self.bbox_radius, self.bbox_thickness, self.fill_alpha)
-            # ---
 
-        # Republish to ROS (consider if this is always needed)
+        # --- Flip the image vertically ---
+        frame = cv2.flip(frame, 0)
+
+        # Republish to ROS - Frame is now guaranteed to be BGR
         try:
-            out_msg = self._bridge.cv2_to_imgmsg(frame, encoding=img_msg.encoding)
+            # Explicitly set encoding to bgr8 as we ensured the frame is BGR
+            output_encoding = 'bgr8'
+            out_msg = self._bridge.cv2_to_imgmsg(frame, encoding=output_encoding)
             out_msg.header = img_msg.header
             self._pub.publish(out_msg)
         except cv_bridge.CvBridgeError as e:
             self.get_logger().error(f'CvBridgeError on republish: {e}')
 
-        # --- Optimization: Only encode and send if clients are connected --- (Optimization #3 part 2)
+        # --- Optimization: Only encode and send if clients are connected ---
         if has_ws_clients and self._ws_loop and self._ws_loop.is_running():
-            # --- Use lower JPEG quality --- (Optimization #2)
             params = [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality]
-            # ---
+            # Encode the BGR frame
             ret, jpg = cv2.imencode('.jpg', frame, params)
             if not ret:
                 self.get_logger().error("cv2.imencode failed")
@@ -198,8 +225,6 @@ class Yolov8WsVisualizer(Node):
             for task in tasks:
                  if self._ws_loop.is_running():
                       future = asyncio.run_coroutine_threadsafe(task, self._ws_loop)
-                      # Optional error handling
-                      # future.add_done_callback(lambda f: self.get_logger().error(f"WS send error: {f.exception()}") if f.exception() else None)
                  else:
                       self.get_logger().warn("WS loop stopped during send scheduling.", throttle_duration_sec=5)
                       break
