@@ -12,15 +12,10 @@ def generate_launch_description():
     pkg_dir = get_package_share_directory('isaac_ros_yolov8')
 
     # --- Declare launch arguments ---
-    http_port_arg = DeclareLaunchArgument(
-        'http_port',
-        default_value='8080',
-        description='HTTP port for the MJPEG stream'
-    )
-    fps_arg = DeclareLaunchArgument(
-        'fps',
-        default_value='30.0',
-        description='Frame rate for the output stream'
+    ws_port_arg = DeclareLaunchArgument(
+        'ws_port',
+        default_value='9001',
+        description='WebSocket port for the visualizer'
     )
     ns_arg = DeclareLaunchArgument(
         'namespace',
@@ -29,14 +24,12 @@ def generate_launch_description():
     )
 
     # --- LaunchConfigurations ---
-    http_port  = LaunchConfiguration('http_port')
-    fps         = LaunchConfiguration('fps')
+    ws_port  = LaunchConfiguration('ws_port')
     namespace   = LaunchConfiguration('namespace')
 
     return LaunchDescription([
+        ws_port_arg,
         ns_arg,
-        http_port_arg,
-        fps_arg,
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 os.path.join(pkg_dir, 'launch', 'yolov8_tensor_rt.launch.py')
@@ -50,8 +43,7 @@ def generate_launch_description():
             name='yolov8_visualizer',
             namespace=namespace,
             parameters=[
-                {'http_port':  http_port},
-                {'fps':      fps}
+                {'ws_port':  ws_port},
             ]
         ),
 
