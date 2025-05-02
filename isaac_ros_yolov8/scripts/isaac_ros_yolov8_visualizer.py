@@ -17,7 +17,6 @@ from vision_msgs.msg import Detection2DArray
 # Only class 0 (“person”) will be visualized
 names = {0: 'person'}
 
-
 class Yolov8WsVisualizer(Node):
     QUEUE_SIZE      = 10
     box_color       = (0x42, 0xE0, 0xFF)  # BGR for #FFE042
@@ -42,8 +41,10 @@ class Yolov8WsVisualizer(Node):
         det_sub = message_filters.Subscriber(
             self, Detection2DArray, 'detections_output')
         img_sub = message_filters.Subscriber(
-            self, Image,           'resize/image')
-        ts      = message_filters.TimeSynchronizer(
+
+            self, Image, 'resize/image')
+        ts = message_filters.TimeSynchronizer(
+
             [det_sub, img_sub], self.QUEUE_SIZE)
         ts.registerCallback(self.detections_callback)
 
