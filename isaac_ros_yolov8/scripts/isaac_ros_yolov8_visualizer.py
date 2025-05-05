@@ -201,14 +201,14 @@ class Yolov8WsVisualizer(Node):
         frame = cv2.flip(frame, 0)
 
         # Republish to ROS - Frame is now guaranteed to be BGR
-        try:
-            # Explicitly set encoding to bgr8 as we ensured the frame is BGR
-            output_encoding = 'bgr8'
-            out_msg = self._bridge.cv2_to_imgmsg(frame, encoding=output_encoding)
-            out_msg.header = img_msg.header
-            self._pub.publish(out_msg)
-        except cv_bridge.CvBridgeError as e:
-            self.get_logger().error(f'CvBridgeError on republish: {e}')
+        # try:
+        #     # Explicitly set encoding to bgr8 as we ensured the frame is BGR
+        #     output_encoding = 'bgr8'
+        #     out_msg = self._bridge.cv2_to_imgmsg(frame, encoding=output_encoding)
+        #     out_msg.header = img_msg.header
+        #     self._pub.publish(out_msg)
+        # except cv_bridge.CvBridgeError as e:
+        #     self.get_logger().error(f'CvBridgeError on republish: {e}')
 
         # --- Optimization: Only encode and send if clients are connected ---
         if has_ws_clients and self._ws_loop and self._ws_loop.is_running():
