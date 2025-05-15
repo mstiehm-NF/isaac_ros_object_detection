@@ -171,8 +171,8 @@ def generate_launch_description():
             'attach_to_shared_component_container': 'True',
             'component_container_name': [namespace, '/tensor_rt_container'],
             'dnn_image_encoder_namespace': namespace,
-            'image_input_topic': 'image',
-            'camera_info_input_topic': 'camera_info',
+            'image_input_topic': 'camera_rear/image',
+            'camera_info_input_topic': 'camera_rear/camera_info',
             'tensor_output_topic': 'tensor_pub',
 
         }.items(),
