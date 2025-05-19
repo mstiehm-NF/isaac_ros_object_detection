@@ -199,13 +199,13 @@ class Yolov8WsVisualizer(Node):
         frame = cv2.flip(frame, 0)
 
         # Republish to ROS (Optional, uncomment if needed)
-        # try:
-        #     output_encoding = 'bgr8'
-        #     out_msg = self._bridge.cv2_to_imgmsg(frame, encoding=output_encoding)
-        #     out_msg.header = img_msg.header # Use current image's header
-        #     self._pub.publish(out_msg)
-        # except cv_bridge.CvBridgeError as e:
-        #     self.get_logger().error(f'CvBridgeError on republish: {e}')
+        try:
+            output_encoding = 'bgr8'
+            out_msg = self._bridge.cv2_to_imgmsg(frame, encoding=output_encoding)
+            out_msg.header = img_msg.header # Use current image's header
+            self._pub.publish(out_msg)
+        except cv_bridge.CvBridgeError as e:
+            self.get_logger().error(f'CvBridgeError on republish: {e}')
 
         # --- Send to WebSocket clients ---
         if has_ws_clients and self._ws_loop and self._ws_loop.is_running():
