@@ -37,9 +37,10 @@ class Yolov8WsVisualizer(Node):
         self._pub    = self.create_publisher(
             Image, 'yolov8_processed_image', self.QUEUE_SIZE)
 
-        # Store latest messages
+        # Store latest messages with automatic cleanup
         self._latest_detection_msg = None
         self._detection_lock = threading.Lock()
+        self._frame_counter = 0  # For periodic cleanup
 
         # Create independent subscribers
         self.detection_subscriber = self.create_subscription(
@@ -152,6 +153,12 @@ class Yolov8WsVisualizer(Node):
         """Callback for new images. Processes image with latest detections."""
         has_ws_clients = bool(self._ws_clients)
         
+        # Periodic cleanup to prevent memory accumulation
+        self._frame_counter += 1
+        if self._frame_counter % 100 == 0:  # Every 100 frames
+            import gc
+            gc.collect()
+        
         # Get the latest detection message in a thread-safe way
         current_detection_msg = None
         with self._detection_lock:
@@ -214,16 +221,30 @@ class Yolov8WsVisualizer(Node):
             if not ret:
                 self.get_logger().error("cv2.imencode failed")
                 return
+            
             blob = jpg.tobytes()
-
             current_clients = list(self._ws_clients) # Copy to avoid modification during iteration
-            tasks = [ws.send(blob) for ws in current_clients]
-            for task in tasks:
-                 if self._ws_loop.is_running():
-                      asyncio.run_coroutine_threadsafe(task, self._ws_loop)
-                 else:
-                      self.get_logger().warn("WS loop stopped during send scheduling.", throttle_duration_sec=5)
-                      break
+            
+            # Send to clients and handle failed connections
+            for ws in current_clients:
+                if self._ws_loop.is_running():
+                    try:
+                        task = asyncio.run_coroutine_threadsafe(ws.send(blob), self._ws_loop)
+                        # Don't wait for completion to avoid blocking, but add timeout
+                        task.result(timeout=0.01)  # Very short timeout to detect immediate failures
+                    except (asyncio.TimeoutError, asyncio.InvalidStateError):
+                        # Task still running or failed immediately, continue to next client
+                        pass
+                    except Exception as e:
+                        # Client likely disconnected, remove from list
+                        self.get_logger().debug(f"Removing failed WebSocket client: {e}")
+                        self._ws_clients.discard(ws)
+                else:
+                    self.get_logger().warn("WS loop stopped during send scheduling.", throttle_duration_sec=5)
+                    break
+            
+            # Explicit cleanup to help garbage collection
+            del blob, jpg
         # ---
 
     def destroy_node(self):
