@@ -58,7 +58,23 @@ YoloV8DecoderNode::YoloV8DecoderNode(const rclcpp::NodeOptions options)
   num_classes_{declare_parameter<int64_t>("num_classes", 80)}
 {}
 
-YoloV8DecoderNode::~YoloV8DecoderNode() = default;
+YoloV8DecoderNode::~YoloV8DecoderNode() 
+{
+  // Explicitly release all buffer memory
+  results_buffer_.clear();
+  results_buffer_.shrink_to_fit();
+  bboxes_buffer_.clear();
+  bboxes_buffer_.shrink_to_fit();
+  scores_buffer_.clear();
+  scores_buffer_.shrink_to_fit();
+  indices_buffer_.clear();
+  indices_buffer_.shrink_to_fit();
+  classes_buffer_.clear();
+  classes_buffer_.shrink_to_fit();
+  
+  // Ensure any pending CUDA operations are complete
+  cudaDeviceSynchronize();
+}
 
 void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTensorListView & msg)
 {
@@ -66,7 +82,11 @@ void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTen
   size_t buffer_size_bytes{tensor.GetTensorSize()};
   size_t buffer_size_floats = buffer_size_bytes / sizeof(float);
   
-  // Reuse buffer memory to avoid repeated allocations
+  // Reuse buffer memory to avoid repeated allocations, but prevent unbounded growth
+  if (results_buffer_.capacity() > buffer_size_floats * 2) {
+    // If buffer has grown significantly larger than needed, shrink it
+    results_buffer_.shrink_to_fit();
+  }
   results_buffer_.resize(buffer_size_floats);  // Reserve elements, not bytes
   
   cudaError_t cuda_status = cudaMemcpy(results_buffer_.data(), tensor.GetBuffer(), 
@@ -84,10 +104,29 @@ void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTen
   }
 
   // Clear and reuse buffers instead of creating new ones
+  // Periodically shrink buffers to prevent unbounded memory growth
+  static int call_count = 0;
+  call_count++;
+  if (call_count % 100 == 0) { // Every 100 calls, check for oversized buffers
+    if (bboxes_buffer_.capacity() > 1000) bboxes_buffer_.shrink_to_fit();
+    if (scores_buffer_.capacity() > 1000) scores_buffer_.shrink_to_fit();
+    if (indices_buffer_.capacity() > 1000) indices_buffer_.shrink_to_fit();
+    if (classes_buffer_.capacity() > 1000) classes_buffer_.shrink_to_fit();
+  }
+  
   bboxes_buffer_.clear();
   scores_buffer_.clear();
   indices_buffer_.clear();
   classes_buffer_.clear();
+  
+  // Reserve reasonable capacity to avoid frequent reallocations
+  // Typical scenes might have 10-50 detections, so reserve for 100
+  if (bboxes_buffer_.capacity() < 100) {
+    bboxes_buffer_.reserve(100);
+    scores_buffer_.reserve(100);
+    indices_buffer_.reserve(100);
+    classes_buffer_.reserve(100);
+  }
 
   //  Output dimensions = [1, 84, 8400]
   int out_dim = 8400;
@@ -104,15 +143,16 @@ void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTen
     float width = w;
     float height = h;
 
-    std::vector<float> conf;
+    // Find max confidence without creating temporary vectors
+    float val_max_conf = 0.0f;
+    int max_index = 0;
     for (int j = 0; j < num_classes_; j++) {
-      conf.push_back(*(results_data + (out_dim * (4 + j)) + i));
+      float conf_val = *(results_data + (out_dim * (4 + j)) + i);
+      if (conf_val > val_max_conf) {
+        val_max_conf = conf_val;
+        max_index = j;
+      }
     }
-
-    std::vector<float>::iterator ind_max_conf;
-    ind_max_conf = std::max_element(std::begin(conf), std::end(conf));
-    int max_index = distance(std::begin(conf), ind_max_conf);
-    float val_max_conf = *max_element(std::begin(conf), std::end(conf));
 
     // Skip low-confidence detections early to save memory and processing
     if (val_max_conf < confidence_threshold_) {
