@@ -40,7 +40,6 @@ class Yolov8WsVisualizer(Node):
         # Store latest messages with automatic cleanup
         self._latest_detection_msg = None
         self._detection_lock = threading.Lock()
-        self._frame_counter = 0  # For periodic cleanup
 
         # Create independent subscribers
         self.detection_subscriber = self.create_subscription(
@@ -153,12 +152,6 @@ class Yolov8WsVisualizer(Node):
         """Callback for new images. Processes image with latest detections."""
         has_ws_clients = bool(self._ws_clients)
         
-        # Periodic cleanup to prevent memory accumulation
-        self._frame_counter += 1
-        if self._frame_counter % 100 == 0:  # Every 100 frames
-            import gc
-            gc.collect()
-        
         # Get the latest detection message in a thread-safe way
         current_detection_msg = None
         with self._detection_lock:
@@ -242,10 +235,6 @@ class Yolov8WsVisualizer(Node):
                 else:
                     self.get_logger().warn("WS loop stopped during send scheduling.", throttle_duration_sec=5)
                     break
-            
-            # Explicit cleanup to help garbage collection
-            del blob, jpg
-        # ---
 
     def destroy_node(self):
         """Cleanly shuts down the node and WebSocket server."""
