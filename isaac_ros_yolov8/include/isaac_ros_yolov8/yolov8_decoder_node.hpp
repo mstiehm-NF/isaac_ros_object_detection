@@ -20,6 +20,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "rclcpp/rclcpp.hpp"
 
@@ -28,6 +29,8 @@
 #include "std_msgs/msg/string.hpp"
 #include "vision_msgs/msg/detection2_d_array.hpp"
 #include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list_view.hpp"
+
+#include <opencv4/opencv2/opencv.hpp>
 
 namespace nvidia
 {
@@ -60,6 +63,13 @@ private:
   double confidence_threshold_{};
   double nms_threshold_{};
   int64_t num_classes_{};
+
+  // Memory pool for reducing allocations
+  mutable std::vector<float> results_buffer_{};
+  mutable std::vector<cv::Rect> bboxes_buffer_{};
+  mutable std::vector<float> scores_buffer_{};
+  mutable std::vector<int> indices_buffer_{};
+  mutable std::vector<int> classes_buffer_{};
 };
 
 }  // namespace yolov8

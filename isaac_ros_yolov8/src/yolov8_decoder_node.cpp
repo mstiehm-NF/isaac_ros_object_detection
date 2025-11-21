@@ -58,24 +58,79 @@ YoloV8DecoderNode::YoloV8DecoderNode(const rclcpp::NodeOptions options)
   num_classes_{declare_parameter<int64_t>("num_classes", 80)}
 {}
 
-YoloV8DecoderNode::~YoloV8DecoderNode() = default;
+YoloV8DecoderNode::~YoloV8DecoderNode() 
+{
+  // Explicitly release all buffer memory
+  results_buffer_.clear();
+  results_buffer_.shrink_to_fit();
+  bboxes_buffer_.clear();
+  bboxes_buffer_.shrink_to_fit();
+  scores_buffer_.clear();
+  scores_buffer_.shrink_to_fit();
+  indices_buffer_.clear();
+  indices_buffer_.shrink_to_fit();
+  classes_buffer_.clear();
+  classes_buffer_.shrink_to_fit();
+  
+  // Ensure any pending CUDA operations are complete
+  cudaDeviceSynchronize();
+}
 
 void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTensorListView & msg)
 {
   auto tensor = msg.GetNamedTensor(tensor_name_);
-  size_t buffer_size{tensor.GetTensorSize()};
-  std::vector<float> results_vector{};
-  results_vector.resize(buffer_size);
-  cudaMemcpy(results_vector.data(), tensor.GetBuffer(), buffer_size, cudaMemcpyDefault);
+  size_t buffer_size_bytes{tensor.GetTensorSize()};
+  size_t buffer_size_floats = buffer_size_bytes / sizeof(float);
+  
+  // Reuse buffer memory to avoid repeated allocations, but prevent unbounded growth
+  if (results_buffer_.capacity() > buffer_size_floats * 2) {
+    // If buffer has grown significantly larger than needed, shrink it
+    results_buffer_.shrink_to_fit();
+  }
+  results_buffer_.resize(buffer_size_floats);  // Reserve elements, not bytes
+  
+  cudaError_t cuda_status = cudaMemcpy(results_buffer_.data(), tensor.GetBuffer(), 
+                                       buffer_size_bytes, cudaMemcpyDeviceToHost);
+  if (cuda_status != cudaSuccess) {
+    RCLCPP_ERROR(this->get_logger(), "CUDA memcpy failed: %s", cudaGetErrorString(cuda_status));
+    return;
+  }
+  
+  // Ensure CUDA operations complete before processing
+  cuda_status = cudaDeviceSynchronize();
+  if (cuda_status != cudaSuccess) {
+    RCLCPP_ERROR(this->get_logger(), "CUDA synchronization failed: %s", cudaGetErrorString(cuda_status));
+    return;
+  }
 
-  std::vector<cv::Rect> bboxes;
-  std::vector<float> scores;
-  std::vector<int> indices;
-  std::vector<int> classes;
+  // Clear and reuse buffers instead of creating new ones
+  // Periodically shrink buffers to prevent unbounded memory growth
+  static int call_count = 0;
+  call_count++;
+  if (call_count % 100 == 0) { // Every 100 calls, check for oversized buffers
+    if (bboxes_buffer_.capacity() > 1000) bboxes_buffer_.shrink_to_fit();
+    if (scores_buffer_.capacity() > 1000) scores_buffer_.shrink_to_fit();
+    if (indices_buffer_.capacity() > 1000) indices_buffer_.shrink_to_fit();
+    if (classes_buffer_.capacity() > 1000) classes_buffer_.shrink_to_fit();
+  }
+  
+  bboxes_buffer_.clear();
+  scores_buffer_.clear();
+  indices_buffer_.clear();
+  classes_buffer_.clear();
+  
+  // Reserve reasonable capacity to avoid frequent reallocations
+  // Typical scenes might have 10-50 detections, so reserve for 100
+  if (bboxes_buffer_.capacity() < 100) {
+    bboxes_buffer_.reserve(100);
+    scores_buffer_.reserve(100);
+    indices_buffer_.reserve(100);
+    classes_buffer_.reserve(100);
+  }
 
   //  Output dimensions = [1, 84, 8400]
   int out_dim = 8400;
-  float * results_data = reinterpret_cast<float *>(results_vector.data());
+  float * results_data = results_buffer_.data();
 
   for (int i = 0; i < out_dim; i++) {
     float x = *(results_data + i);
@@ -88,30 +143,39 @@ void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTen
     float width = w;
     float height = h;
 
-    std::vector<float> conf;
+    // Find max confidence without creating temporary vectors
+    float val_max_conf = 0.0f;
+    int max_index = 0;
     for (int j = 0; j < num_classes_; j++) {
-      conf.push_back(*(results_data + (out_dim * (4 + j)) + i));
+      float conf_val = *(results_data + (out_dim * (4 + j)) + i);
+      if (conf_val > val_max_conf) {
+        val_max_conf = conf_val;
+        max_index = j;
+      }
     }
 
-    std::vector<float>::iterator ind_max_conf;
-    ind_max_conf = std::max_element(std::begin(conf), std::end(conf));
-    int max_index = distance(std::begin(conf), ind_max_conf);
-    float val_max_conf = *max_element(std::begin(conf), std::end(conf));
+    // Skip low-confidence detections early to save memory and processing
+    if (val_max_conf < confidence_threshold_) {
+      continue;
+    }
 
-    bboxes.push_back(cv::Rect(x1, y1, width, height));
-    indices.push_back(i);
-    scores.push_back(val_max_conf);
-    classes.push_back(max_index);
+    bboxes_buffer_.push_back(cv::Rect(x1, y1, width, height));
+    indices_buffer_.push_back(i);
+    scores_buffer_.push_back(val_max_conf);
+    classes_buffer_.push_back(max_index);
   }
 
-  RCLCPP_DEBUG(this->get_logger(), "Count of bboxes: %lu", bboxes.size());
-  cv::dnn::NMSBoxes(bboxes, scores, confidence_threshold_, nms_threshold_, indices, 5);
-  RCLCPP_DEBUG(this->get_logger(), "# boxes after NMS: %lu", indices.size());
+  RCLCPP_DEBUG(this->get_logger(), "Count of bboxes: %lu", bboxes_buffer_.size());
+  
+  // Create temporary vector for NMS indices (cv::dnn::NMSBoxes modifies this)
+  std::vector<int> nms_indices;
+  cv::dnn::NMSBoxes(bboxes_buffer_, scores_buffer_, confidence_threshold_, nms_threshold_, nms_indices, 5);
+  RCLCPP_DEBUG(this->get_logger(), "# boxes after NMS: %lu", nms_indices.size());
 
   vision_msgs::msg::Detection2DArray final_detections_arr;
 
-  for (size_t i = 0; i < indices.size(); i++) {
-    int ind = indices[i];
+  for (size_t i = 0; i < nms_indices.size(); i++) {
+    int ind = nms_indices[i];
     vision_msgs::msg::Detection2D detection;
 
     geometry_msgs::msg::Pose center;
@@ -120,10 +184,10 @@ void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTen
 
     // 2D object Bbox
     vision_msgs::msg::BoundingBox2D bbox;
-    float w = bboxes[ind].width;
-    float h = bboxes[ind].height;
-    float x_center = bboxes[ind].x + (0.5 * w);
-    float y_center = bboxes[ind].y + (0.5 * h);
+    float w = bboxes_buffer_[ind].width;
+    float h = bboxes_buffer_[ind].height;
+    float x_center = bboxes_buffer_[ind].x + (0.5 * w);
+    float y_center = bboxes_buffer_[ind].y + (0.5 * h);
     detection.bbox.center.position.x = x_center;
     detection.bbox.center.position.y = y_center;
     detection.bbox.size_x = w;
@@ -132,8 +196,8 @@ void YoloV8DecoderNode::InputCallback(const nvidia::isaac_ros::nitros::NitrosTen
 
     // Class probabilities
     vision_msgs::msg::ObjectHypothesisWithPose hyp;
-    hyp.hypothesis.class_id = std::to_string(classes.at(ind));
-    hyp.hypothesis.score = scores.at(ind);
+    hyp.hypothesis.class_id = std::to_string(classes_buffer_.at(ind));
+    hyp.hypothesis.score = scores_buffer_.at(ind);
     detection.results.push_back(hyp);
 
     detection.header.stamp.sec = msg.GetTimestampSeconds();

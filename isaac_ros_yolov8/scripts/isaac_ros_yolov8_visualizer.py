@@ -37,7 +37,7 @@ class Yolov8WsVisualizer(Node):
         self._pub    = self.create_publisher(
             Image, 'yolov8_processed_image', self.QUEUE_SIZE)
 
-        # Store latest messages
+        # Store latest messages with automatic cleanup
         self._latest_detection_msg = None
         self._detection_lock = threading.Lock()
 
@@ -214,17 +214,27 @@ class Yolov8WsVisualizer(Node):
             if not ret:
                 self.get_logger().error("cv2.imencode failed")
                 return
+            
             blob = jpg.tobytes()
-
             current_clients = list(self._ws_clients) # Copy to avoid modification during iteration
-            tasks = [ws.send(blob) for ws in current_clients]
-            for task in tasks:
-                 if self._ws_loop.is_running():
-                      asyncio.run_coroutine_threadsafe(task, self._ws_loop)
-                 else:
-                      self.get_logger().warn("WS loop stopped during send scheduling.", throttle_duration_sec=5)
-                      break
-        # ---
+            
+            # Send to clients and handle failed connections
+            for ws in current_clients:
+                if self._ws_loop.is_running():
+                    try:
+                        task = asyncio.run_coroutine_threadsafe(ws.send(blob), self._ws_loop)
+                        # Don't wait for completion to avoid blocking, but add timeout
+                        task.result(timeout=0.01)  # Very short timeout to detect immediate failures
+                    except (asyncio.TimeoutError, asyncio.InvalidStateError):
+                        # Task still running or failed immediately, continue to next client
+                        pass
+                    except Exception as e:
+                        # Client likely disconnected, remove from list
+                        self.get_logger().debug(f"Removing failed WebSocket client: {e}")
+                        self._ws_clients.discard(ws)
+                else:
+                    self.get_logger().warn("WS loop stopped during send scheduling.", throttle_duration_sec=5)
+                    break
 
     def destroy_node(self):
         """Cleanly shuts down the node and WebSocket server."""
